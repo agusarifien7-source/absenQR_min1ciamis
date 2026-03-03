@@ -1,0 +1,1 @@
+# absenQR_min1ciamis
