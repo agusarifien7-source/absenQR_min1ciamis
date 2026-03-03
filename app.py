@@ -159,7 +159,7 @@ function getSiswaList() {
           // Jika Sheet masih membacanya sebagai Date Object
           tglLahir = Utilities.formatDate(rawTgl, 'Asia/Jakarta', 'yyyy-MM-dd');
         } else if (typeof rawTgl === 'string') {
-          // Jika format string 'dd-mm-yyyy' (cth: 06-01-2026)
+          # Jika format string 'dd-mm-yyyy' (cth: 06-01-2026)
           // Kita harus balik jadi yyyy-mm-dd agar bisa dibaca input HTML
           let cleanTgl = rawTgl.replace(/'/g, "").trim(); // Hapus kutip jika ada
           if (cleanTgl.includes('-')) {
@@ -1639,3 +1639,4 @@ function importGuruBulk(dataArray) {
     return { success: false, message: error.toString() };
   }
 }
+
