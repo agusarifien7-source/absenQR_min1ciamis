@@ -898,3 +898,584 @@ def get_monitoring():
         
     except Exception as e:
         return jsonify({'success':
+                # Sort by kelas then nama
+                result.sort(key=lambda x: (x['kelas'], x['nama']))
+                
+                return jsonify({'success': True, 'data': result})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/absensi/status', methods=['PUT'])
+@login_required
+@role_required('guru')
+def update_absensi_status():
+    """Update status absensi siswa"""
+    try:
+        data = request.json
+        nisn = data.get('nisn')
+        nama = data.get('nama')
+        kelas = data.get('kelas')
+        new_status = data.get('newStatus')
+        
+        ss = get_spreadsheet()
+        absensi_sheet = ss.worksheet('absensi')
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        
+        all_data = absensi_sheet.get_all_values()
+        
+        found = False
+        row_index = None
+        
+        for i, row in enumerate(all_data[1:], start=2):
+            if len(row) >= 1 and row[0]:
+                try:
+                    tgl = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d')
+                except:
+                    try:
+                        tgl = datetime.strptime(row[0], '%Y-%m-%d').strftime('%Y-%m-%d')
+                    except:
+                        continue
+                
+                row_nisn = str(row[1]).strip() if len(row) > 1 else ''
+                
+                if tgl == today_str and row_nisn == str(nisn).strip():
+                    found = True
+                    row_index = i
+                    break
+        
+        if found:
+            # Update kolom H (kolom 8) - Status
+            absensi_sheet.update(f'H{row_index}', new_status)
+        else:
+            # Insert data baru
+            jam_datang = '-'
+            if new_status == 'Hadir':
+                jam_datang = datetime.now().strftime('%H:%M:%S')
+            
+            absensi_sheet.append_row([
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                f"'{nisn}",
+                nama,
+                kelas,
+                jam_datang,
+                '',
+                '-',
+                new_status
+            ])
+        
+        return jsonify({'success': True, 'message': 'Status berhasil diubah'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Gagal: {str(e)}'})
+
+# ====================================
+# HARI LIBUR
+# ====================================
+@app.route('/api/hari-libur', methods=['GET'])
+@login_required
+def get_hari_libur():
+    """Mendapatkan daftar hari libur"""
+    try:
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('hari_libur')
+        data = sheet.get_all_values()
+        
+        list_libur = []
+        for row in data[1:]:  # Lewati header
+            if len(row) >= 1 and row[0]:
+                try:
+                    tgl = datetime.strptime(row[0], '%Y-%m-%d').strftime('%Y-%m-%d')
+                    list_libur.append({
+                        'tanggal': tgl,
+                        'keterangan': row[1] if len(row) > 1 else ''
+                    })
+                except:
+                    pass
+        
+        # Urutkan descending
+        list_libur.sort(key=lambda x: x['tanggal'], reverse=True)
+        
+        return jsonify({'success': True, 'data': list_libur})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/hari-libur', methods=['POST'])
+@role_required('admin')
+def add_hari_libur():
+    """Menambahkan hari libur baru"""
+    try:
+        data = request.json
+        tanggal = data.get('tanggal')
+        keterangan = data.get('keterangan')
+        
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('hari_libur')
+        
+        sheet.append_row([tanggal, keterangan])
+        
+        return jsonify({'success': True, 'message': 'Hari libur berhasil ditambahkan'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/hari-libur/<tanggal>', methods=['PUT'])
+@role_required('admin')
+def update_hari_libur(tanggal):
+    """Update hari libur"""
+    try:
+        data = request.json
+        new_tanggal = data.get('newTanggal')
+        new_keterangan = data.get('newKeterangan')
+        
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('hari_libur')
+        all_data = sheet.get_all_values()
+        
+        found = False
+        
+        for i, row in enumerate(all_data[1:], start=2):
+            if len(row) >= 1 and row[0]:
+                try:
+                    row_date = datetime.strptime(row[0], '%Y-%m-%d').strftime('%Y-%m-%d')
+                    if row_date == tanggal:
+                        sheet.update(f'A{i}:B{i}', [[new_tanggal, new_keterangan]])
+                        found = True
+                        break
+                except:
+                    pass
+        
+        if found:
+            return jsonify({'success': True, 'message': 'Hari libur berhasil diperbarui'})
+        else:
+            return jsonify({'success': False, 'message': 'Data tanggal tidak ditemukan'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/hari-libur/<tanggal>', methods=['DELETE'])
+@role_required('admin')
+def delete_hari_libur(tanggal):
+    """Hapus hari libur"""
+    try:
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('hari_libur')
+        all_data = sheet.get_all_values()
+        
+        for i, row in enumerate(all_data[1:], start=2):
+            if len(row) >= 1 and row[0]:
+                try:
+                    row_date = datetime.strptime(row[0], '%Y-%m-%d').strftime('%Y-%m-%d')
+                    if row_date == tanggal:
+                        sheet.delete_rows(i)
+                        return jsonify({'success': True, 'message': 'Hari libur dihapus'})
+                except:
+                    pass
+        
+        return jsonify({'success': False, 'message': 'Data tidak ditemukan'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+# ====================================
+# KONFIGURASI
+# ====================================
+@app.route('/api/config', methods=['GET'])
+@login_required
+def get_config():
+    """Mendapatkan konfigurasi aplikasi"""
+    try:
+        result = get_app_config()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/config', methods=['POST'])
+@role_required('admin')
+def save_config():
+    """Menyimpan konfigurasi aplikasi"""
+    try:
+        data = request.json
+        new_config = data.get('config', {})
+        
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('konfigurasi')
+        all_data = sheet.get_all_values()
+        
+        # Fungsi untuk update berdasarkan key
+        def update_row(key, val):
+            for i, row in enumerate(all_data[1:], start=2):
+                if len(row) >= 1 and row[0] == key:
+                    sheet.update(f'B{i}', f"'{val}")
+                    return
+        
+        update_row('jam_masuk_mulai', new_config.get('jam_masuk_mulai', '06:00'))
+        update_row('jam_masuk_akhir', new_config.get('jam_masuk_akhir', '07:15'))
+        update_row('jam_pulang_mulai', new_config.get('jam_pulang_mulai', '15:00'))
+        update_row('jam_pulang_akhir', new_config.get('jam_pulang_akhir', '17:00'))
+        
+        return jsonify({'success': True, 'message': 'Konfigurasi waktu berhasil disimpan'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+# ====================================
+# SETUP DATABASE
+# ====================================
+@app.route('/api/setup', methods=['POST'])
+def setup_database():
+    """Setup initial database"""
+    try:
+        ss = get_spreadsheet()
+        
+        # Setup sheet users
+        try:
+            users_sheet = ss.worksheet('users')
+        except:
+            users_sheet = ss.add_worksheet('users', 100, 20)
+            users_sheet.append_row(['Username', 'Password', 'Role', 'Kelas'])
+            users_sheet.append_row(['admin', 'admin123', 'admin', ''])
+            users_sheet.append_row(['guru1', 'guru123', 'guru', 'VI B'])
+        
+        # Setup sheet siswa
+        try:
+            siswa_sheet = ss.worksheet('siswa')
+        except:
+            siswa_sheet = ss.add_worksheet('siswa', 100, 20)
+            siswa_sheet.append_row([
+                'Nama Lengkap', 'NISN', 'Jenis Kelamin', 'Tanggal Lahir', 'Agama',
+                'Nama Ayah', 'Nama Ibu', 'No Handphone', 'Kelas', 'Alamat'
+            ])
+            siswa_sheet.append_row([
+                'Ahmad Rizki', '1234567890', 'Laki-laki', '2008-05-15', 'Islam',
+                'Budi Santoso', 'Siti Aminah', '081234567890', 'VI B',
+                'Jl. Merdeka No. 10, Bengkulu'
+            ])
+        
+        # Setup sheet absensi
+        try:
+            absensi_sheet = ss.worksheet('absensi')
+        except:
+            absensi_sheet = ss.add_worksheet('absensi', 100, 20)
+            absensi_sheet.append_row([
+                'Tanggal', 'NISN', 'Nama', 'Kelas', 'Jam Datang', 
+                'Jam Pulang', 'Keterangan Waktu', 'Status'
+            ])
+        
+        # Setup sheet hari_libur
+        try:
+            libur_sheet = ss.worksheet('hari_libur')
+        except:
+            libur_sheet = ss.add_worksheet('hari_libur', 100, 10)
+            libur_sheet.append_row(['Tanggal', 'Keterangan'])
+        
+        # Setup sheet konfigurasi
+        try:
+            config_sheet = ss.worksheet('konfigurasi')
+        except:
+            config_sheet = ss.add_worksheet('konfigurasi', 100, 10)
+            config_sheet.append_row(['Key', 'Value', 'Keterangan'])
+            config_sheet.append_row(['jam_masuk_mulai', '06:00', 'Waktu absen datang dibuka'])
+            config_sheet.append_row(['jam_masuk_akhir', '07:15', 'Batas waktu terlambat'])
+            config_sheet.append_row(['jam_pulang_mulai', '15:00', 'Waktu absen pulang dibuka'])
+            config_sheet.append_row(['jam_pulang_akhir', '17:00', 'Batas akhir absen pulang'])
+        
+        return jsonify({'success': True, 'message': 'Setup database berhasil'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+# ====================================
+# IMPORT/EXPORT
+# ====================================
+@app.route('/api/import/siswa', methods=['POST'])
+@role_required('admin')
+def import_siswa():
+    """Import data siswa dari Excel"""
+    try:
+        data = request.json
+        data_array = data.get('data', [])
+        
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('siswa')
+        existing_data = sheet.get_all_values()
+        
+        # Ambil daftar NISN yang sudah ada
+        existing_nisn = set()
+        for row in existing_data[1:]:
+            if len(row) > 1:
+                existing_nisn.add(str(row[1]).strip())
+        
+        rows_to_add = []
+        added_count = 0
+        skipped_count = 0
+        
+        for item in data_array:
+            nisn = str(item.get('nisn', '')).strip()
+            
+            if not item.get('nama') or not nisn:
+                skipped_count += 1
+                continue
+            
+            if nisn in existing_nisn:
+                skipped_count += 1
+                continue
+            
+            # Format tanggal
+            tgl_lahir = item.get('tanggalLahir', '')
+            
+            rows_to_add.append([
+                item.get('nama', ''),
+                f"'{nisn}",
+                item.get('jenisKelamin', ''),
+                tgl_lahir,
+                item.get('agama', ''),
+                item.get('namaAyah', ''),
+                item.get('namaIbu', ''),
+                f"'{item.get('noHp', '')}",
+                item.get('kelas', ''),
+                item.get('alamat', '')
+            ])
+            
+            existing_nisn.add(nisn)
+            added_count += 1
+        
+        if rows_to_add:
+            for row in rows_to_add:
+                sheet.append_row(row)
+        
+        return jsonify({
+            'success': True,
+            'added': added_count,
+            'skipped': skipped_count,
+            'message': f'Import selesai. Berhasil: {added_count}, Duplikat/Gagal: {skipped_count}'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/import/guru', methods=['POST'])
+@role_required('admin')
+def import_guru():
+    """Import data guru dari Excel"""
+    try:
+        data = request.json
+        data_array = data.get('data', [])
+        
+        ss = get_spreadsheet()
+        sheet = ss.worksheet('users')
+        existing_data = sheet.get_all_values()
+        
+        # Ambil daftar username yang sudah ada
+        existing_usernames = set()
+        for row in existing_data[1:]:
+            if len(row) > 0:
+                existing_usernames.add(str(row[0]).strip())
+        
+        rows_to_add = []
+        added_count = 0
+        skipped_count = 0
+        
+        for item in data_array:
+            username = str(item.get('username', '')).strip()
+            
+            if not username or not item.get('password'):
+                skipped_count += 1
+                continue
+            
+            if username in existing_usernames:
+                skipped_count += 1
+                continue
+            
+            rows_to_add.append([
+                f"'{username}",
+                f"'{item.get('password', '')}",
+                'guru',
+                item.get('kelas', '')
+            ])
+            
+            existing_usernames.add(username)
+            added_count += 1
+        
+        if rows_to_add:
+            for row in rows_to_add:
+                sheet.append_row(row)
+        
+        return jsonify({
+            'success': True,
+            'added': added_count,
+            'skipped': skipped_count,
+            'message': f'Import selesai. Berhasil: {added_count}, Duplikat/Gagal: {skipped_count}'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/export/<type>', methods=['GET'])
+@login_required
+def export_data(type):
+    """Export data ke Excel"""
+    try:
+        filter_kelas = request.args.get('kelas')
+        filter_tgl_mulai = request.args.get('tanggalMulai')
+        filter_tgl_akhir = request.args.get('tanggalAkhir')
+        
+        ss = get_spreadsheet()
+        
+        if type == 'laporan_absensi':
+            # Export laporan absensi
+            sheet = ss.worksheet('absensi')
+            data = sheet.get_all_values()
+            
+            result = []
+            no = 1
+            
+            for row in data[1:]:
+                if len(row) >= 1 and row[0]:
+                    try:
+                        raw_date = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
+                        tanggal_str = raw_date.strftime('%d-%m-%Y')
+                        date_for_filter = raw_date.strftime('%Y-%m-%d')
+                    except:
+                        try:
+                            raw_date = datetime.strptime(row[0], '%Y-%m-%d')
+                            tanggal_str = raw_date.strftime('%d-%m-%Y')
+                            date_for_filter = raw_date.strftime('%Y-%m-%d')
+                        except:
+                            continue
+                    
+                    row_kelas = row[3] if len(row) > 3 else ''
+                    
+                    # Filter
+                    match = True
+                    if filter_tgl_mulai and date_for_filter < filter_tgl_mulai:
+                        match = False
+                    if filter_tgl_akhir and date_for_filter > filter_tgl_akhir:
+                        match = False
+                    if filter_kelas and row_kelas != filter_kelas:
+                        match = False
+                    
+                    if match:
+                        jam_datang = row[4] if len(row) > 4 else ''
+                        jam_pulang = row[5] if len(row) > 5 and row[5] else '-'
+                        
+                        result.append([
+                            no,
+                            tanggal_str,
+                            f"'{row[1]}" if len(row) > 1 else '',
+                            row[2] if len(row) > 2 else '',
+                            row_kelas,
+                            jam_datang,
+                            jam_pulang,
+                            row[6] if len(row) > 6 else '',
+                            row[7] if len(row) > 7 else ''
+                        ])
+                        no += 1
+            
+            # Buat DataFrame
+            df = pd.DataFrame(result, columns=[
+                'No', 'Tanggal', 'NISN', 'Nama Siswa', 'Kelas', 
+                'Jam Datang', 'Jam Pulang', 'Keterangan Waktu', 'Status Kehadiran'
+            ])
+            
+        elif type == 'monitoring':
+            # Export monitoring harian
+            filter_kelas = filter_kelas or (session['user'].get('kelas') if session['user']['role'] == 'guru' else None)
+            
+            # Panggil fungsi monitoring
+            from flask import Response
+            import requests
+            
+            # Gunakan request internal
+            monitoring_result = get_monitoring().json
+            
+            if not monitoring_result.get('success'):
+                return jsonify({'success': False, 'message': 'Gagal mengambil data monitoring'})
+            
+            data = monitoring_result.get('data', [])
+            
+            result = []
+            for i, item in enumerate(data):
+                result.append([
+                    i + 1,
+                    item.get('nama', ''),
+                    f"'{item.get('nisn', '')}",
+                    item.get('kelas', ''),
+                    item.get('jamDatang', '-'),
+                    item.get('jamPulang', '-'),
+                    item.get('keterangan', '-'),
+                    item.get('status', 'Belum Absen')
+                ])
+            
+            # Buat DataFrame
+            df = pd.DataFrame(result, columns=[
+                'No', 'Nama Siswa', 'NISN', 'Kelas', 
+                'Jam Datang', 'Jam Pulang', 'Keterangan Waktu', 'Status Terkini'
+            ])
+            
+        else:
+            return jsonify({'success': False, 'message': 'Tipe export tidak valid'})
+        
+        # Buat file Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
+            
+            # Styling (sederhana)
+            workbook = writer.book
+            worksheet = writer.sheets['Sheet1']
+            
+            # Format header
+            for col in range(1, len(df.columns) + 1):
+                cell = worksheet.cell(row=1, column=col)
+                cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF")
+                cell.fill = openpyxl.styles.PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+                cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+            
+            # Auto adjust column width
+            for col in worksheet.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                worksheet.column_dimensions[column].width = adjusted_width
+        
+        output.seek(0)
+        
+        # Generate filename
+        timestamp = datetime.now().strftime('%d-%m-%Y %H%M')
+        filename = f"{'Laporan Absensi' if type == 'laporan_absensi' else 'Monitoring Harian'} - {timestamp}.xlsx"
+        
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Gagal generate Excel: {str(e)}'})
+
+# ====================================
+# CEK SESSION
+# ====================================
+@app.route('/api/me', methods=['GET'])
+@login_required
+def get_current_user():
+    """Mendapatkan data user yang sedang login"""
+    return jsonify({
+        'success': True,
+        'user': session.get('user')
+    })
+
+# ====================================
+# MAIN
+# ====================================
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
